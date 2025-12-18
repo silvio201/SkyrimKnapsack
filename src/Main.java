@@ -16,13 +16,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class Main {
 
-    private static final String SEPARATOR = ";";
-
+    private static final String SEPARATOR = ";"; //Separator character used in CSV File
+    private static final AtomicLong count = new AtomicLong(0); //Counting variable to determine how many iterations of knapsack were run.
+    private static final AtomicBoolean solutionFound = new AtomicBoolean(false); // Atomic boolean, which is set to true if a thread has found a solution. Other threads will then cancel.
     private static List<Item> items;
     private static float maxWeight;
     private static int valueThreshold;
-    private static final AtomicLong count = new AtomicLong(0);
-    private static final AtomicBoolean solutionFound = new AtomicBoolean(false);
 
     public static void main(String[] args) throws IOException {
         items = processAndValidateCsv(pickFile());
@@ -38,7 +37,7 @@ public class Main {
         if (result.status().equals(Status.SUCCEEDED)) {
             System.out.println("Valid knapsack found:");
             for (Item item : result.items()) {
-                System.out.println("\t" +item);
+                System.out.println("\t" + item);
             }
             System.out.printf("Total Weight: %.2f%n", result.weightSum());
             System.out.printf("Total Value: %d%n", result.valueSum());
@@ -52,6 +51,10 @@ public class Main {
         System.out.printf("A total of %d different subsets were computed.", count.get());
     }
 
+    /**
+     * Method used to start FilePicker Dialog.
+     * @return CSV File
+     */
     public static File pickFile() {
         JFileChooser fileChooser = new JFileChooser(System.getProperty("user.dir"));
         FileNameExtensionFilter csvFilter =
@@ -67,13 +70,19 @@ public class Main {
         }
     }
 
+    /**
+     * Method used to verify result of recursive knapsack method and compare duration of verification to duration of calculation.
+     * Runs in linear runtime.
+     * @param result Knapsack object, which was calculated before and in Status SUCCEEDED.
+     * @param oldDuration Time it took to calculate result.
+     */
     private static void verifyResult(Knapsack result, Duration oldDuration) {
         System.out.println("\nVerification:");
         System.out.println("Value:");
         long start = System.currentTimeMillis();
         int sum = 0;
         float weight = 0.0f;
-        for(Item item : result.items()) {
+        for (Item item : result.items()) {
             sum += item.value();
             weight += item.weight();
         }
@@ -102,38 +111,53 @@ public class Main {
         System.out.printf("The verification took %3.2f %% of the time, which was used to compute the result.\n", duration.toMillis() * 100.0 / oldDuration.toMillis());
     }
 
-    private static Knapsack knapsack(Knapsack knapsack) {        
+    /**
+     * Recursive method to brute force calculate a knapsack, which fulfills both the value and maximal weight constraint.
+     * @param knapsack Knapsack in Status IN_PROGRESS.
+     * @return Knapsack object in Status SUCCEEDED OR FAILED.
+     */
+    private static Knapsack knapsack(Knapsack knapsack) {
         if (knapsack.valueSum() >= valueThreshold && knapsack.weightSum() <= maxWeight) {
             // Set Status to succeeded if criteria was met.
             knapsack.setStatus(Status.SUCCEEDED);
-            count.getAndSet(count.longValue()+1);
+            count.getAndSet(count.longValue() + 1);
             return knapsack;
         } else if (knapsack.weightSum() > maxWeight || solutionFound.get()) {
-            count.getAndSet(count.longValue()+1);
+            // Weight constraint has been violated or another thread found a solution -> cancel execution.
+            count.getAndSet(count.longValue() + 1);
             knapsack.setStatus(Status.FAILED);
             return knapsack;
         }
 
+        // Iterate over all items and add a random item, which is not already in the knapsack.
         for (Item item : items) {
             if (!containsReference(knapsack.items(), item)) {
                 Knapsack copy = knapsack.copy();
                 copy.addItem(item);
                 Knapsack result = knapsack(copy);
                 if (result.status().equals(Status.SUCCEEDED)) {
+                    // If a valid knapsack was found, return that.
                     return result;
                 }
             }
         }
+        // If no valid configuration was found return a failed knapsack.
         knapsack.setStatus(Status.FAILED);
         return knapsack;
     }
 
+    /**
+     * Method to execute the knapsack method in parallel with multiple CPU cores.
+     * @return Knapsack object in Status SUCCEEDED OR FAILED.
+     */
     private static Knapsack parallelKnapsack() {
         int numCores = Runtime.getRuntime().availableProcessors();
 
         final Knapsack[] finalResult = new Knapsack[1];
         ExecutorService executor = Executors.newFixedThreadPool(numCores - 1);
 
+        // Give each thread a new knapsack with an item from the items list.
+        // By iterating over every item, eventually every possible configuration will be calculated, if no SUCCEEDED knapsack was found beforehand.
         for (int i = 0; i < items.size(); i++) {
             int finalI = i;
             executor.submit(() -> {
@@ -144,6 +168,7 @@ public class Main {
 
                     Knapsack result = knapsack(knapsack);
 
+                    // If a SUCCEEDED knapsack is returned, save it and set solutionFound to true, so that the other threads stop their calculations.
                     if (result.status().equals(Status.SUCCEEDED)) {
                         synchronized (Main.class) {
                             if (finalResult[0] == null) {
@@ -156,6 +181,7 @@ public class Main {
             });
         }
 
+        // Shut down the thread pool and wait for termination of threads.
         try {
             executor.shutdown();
 
@@ -167,6 +193,13 @@ public class Main {
         return finalResult[0] == null ? new Knapsack(Status.FAILED, null, 0, 0) : finalResult[0];
     }
 
+    /**
+     * Custom method to check if a item is already in a given list of items.
+     * Uses reference based check, because multiple items with same name, value and weight can exist.
+     * @param list List of Skyrim items
+     * @param item Item object, which should be checked if it is contained in the list.
+     * @return true if given item is in the list. false if not.
+     */
     public static boolean containsReference(List<Item> list, Item item) {
         for (Item existingItem : list) {
             // Hier wird die Referenzgleichheit geprüft (speicherortgleich)
@@ -177,6 +210,13 @@ public class Main {
         return false;
     }
 
+    /**
+     * Method to validate given CSV-File.
+     * Checks if it has 3 columns, with the pre-defined values of name, weight and value.
+     * @param csvFile CSV-File
+     * @return a list of Items.
+     * @throws IOException when File does not exist or is not in the right format.
+     */
     public static List<Item> processAndValidateCsv(File csvFile)
             throws IOException {
 
@@ -233,6 +273,10 @@ public class Main {
         return validatedData;
     }
 
+    /**
+     * Method starting a dialog window to read float value.
+     * @return Float value.
+     */
     public static float getFloatInput() {
         String input;
         Float result = null;
@@ -260,6 +304,10 @@ public class Main {
         return result;
     }
 
+    /**
+     * Method starting a dialog window to read integer value.
+     * @return Integer value.
+     */
     public static int getIntegerInput() {
         String input;
         Integer result = null;

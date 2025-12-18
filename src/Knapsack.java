@@ -1,6 +1,10 @@
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * A class representing a individual knapsack, with all containing items, their sum of gold values and their sum of weight.
+ * The status field describes if the knapsack is still processed, already failed the requirement or succeeded the requrirements.
+ */
 public class Knapsack {
     private Status status;
     private final List<Item> items;

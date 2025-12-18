@@ -1,3 +1,9 @@
+/**
+ * A record class describing an item in Skyrim.
+ * @param name Name of the item.
+ * @param weight Weight of the item.
+ * @param value Gold value of the item.
+ */
 public record Item (String name, float weight, int value) {
 
     @Override
