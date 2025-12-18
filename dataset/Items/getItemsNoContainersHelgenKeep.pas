@@ -1,7 +1,9 @@
 unit ExportHelgenKeep01_Items;
 
 var
-  sl: TStringList;
+  slItems: TStringList;
+  slBase: TStringList;
+  baseSeen: TStringList;
 
 function IsLootItemBase(base: IInterface): boolean;
 var
@@ -20,9 +22,21 @@ end;
 
 function Initialize: integer;
 begin
-  sl := TStringList.Create;
-  sl.Add(
+  slItems := TStringList.Create;
+  slBase  := TStringList.Create;
+  baseSeen := TStringList.Create;
+
+  baseSeen.Sorted := true;
+  baseSeen.Duplicates := dupIgnore;
+
+  // items.csv
+  slItems.Add(
     'form_id,editor_id,refr_id,record_type,is_persistent,source_type'
+  );
+
+  // items_base.csv
+  slBase.Add(
+    'form_id,editor_id,weight,value'
   );
 end;
 
@@ -51,34 +65,49 @@ begin
   if not IsLootItemBase(base) then
     exit;
 
-  // Base Object Daten (Item-Identität)
+  // Base Object Daten
   editorID   := GetElementEditValues(base, 'EDID');
   recordType := Signature(base);
   baseFormID := IntToHex(FixedFormID(base), 8);
 
-  // Referenz-Daten (Instanz)
+  // Referenzdaten
   refrFormID := IntToHex(FixedFormID(e), 8);
 
-  // Persistent?
   if GetElementNativeValues(e, 'Record Header\Record Flags\Persistent') = 1 then
     isPersistent := 'true'
   else
     isPersistent := 'false';
 
-  sl.Add(Format('%s,%s,%s,%s,%s,PLACED', [
+  // ---- items.csv (Instanzen) ----
+  slItems.Add(Format('%s,%s,%s,%s,%s,PLACED', [
     baseFormID,
     editorID,
     refrFormID,
     recordType,
     isPersistent
   ]));
+
+  // ---- items_base.csv (Typen, einmalig) ----
+  if baseSeen.IndexOf(baseFormID) = -1 then begin
+    baseSeen.Add(baseFormID);
+    slBase.Add(Format('%s,%s,,', [
+      baseFormID,
+      editorID
+    ]));
+  end;
 end;
 
 function Finalize: integer;
 begin
-  sl.SaveToFile(ProgramPath + 'items_HelgenKeep01.csv');
-  sl.Free;
+  slItems.SaveToFile(ProgramPath + 'items_HelgenKeep01.csv');
+  slBase.SaveToFile(ProgramPath + 'items_base_HelgenKeep01.csv');
+
+  slItems.Free;
+  slBase.Free;
+  baseSeen.Free;
+
   AddMessage('Item export finished: items_HelgenKeep01.csv');
+  AddMessage('Base item export finished: items_base_HelgenKeep01.csv');
 end;
 
 end.
