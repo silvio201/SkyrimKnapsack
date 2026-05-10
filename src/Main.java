@@ -25,7 +25,7 @@ public class Main {
 
     public static void main(String[] args) throws IOException {
         items = processAndValidateCsv(pickFile());
-        items.sort(Comparator.comparingInt(Item::value).reversed());
+        //items.sort(Comparator.comparingInt(Item::value).reversed());
         maxWeight = getFloatInput();
         valueThreshold = getIntegerInput();
 
